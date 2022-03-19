@@ -78,9 +78,10 @@ VOID OnPackageDispatch(
 
 	UINT DestBufferSize = 4096;
 
-	UINT size_ip = 0;
+	UINT ipHeaderLength = 0;
+	UINT ipTotalLength = 0;
 	UINT ipVer = 0;
-	UINT size_tcp = 0;
+	UINT tcpHeaderLength = 0;
 
 	UNREFERENCED_PARAMETER(bRequest);
 
@@ -133,16 +134,17 @@ VOID OnPackageDispatch(
 			if (pEthHeader->EthType == ETHERTYPE_IP)
 			{
 				pIPHeader = (IPV4_HDR*)(pCopyBuffer + sizeof(NDISPROT_ETH_HEADER));
-				size_ip = IP_HL(pIPHeader) * 4;
+				ipHeaderLength = IP_HL(pIPHeader) * 4;
 				ipVer = IP_V(pIPHeader);
+				ipTotalLength = NtoHs(pIPHeader->ip_totallength);
 
 				if (pIPHeader->ip_protocol == 6)	// TCP
 				{
-					pTCPHeader = (TCPHeader*)(pCopyBuffer + sizeof(NDISPROT_ETH_HEADER) + size_ip);
-					size_tcp = TH_OFF(pTCPHeader) * 4;
-					pPayload = pPackage + sizeof(NDISPROT_ETH_HEADER) + size_ip + size_tcp;
-					payloadLength = IP_TL(pIPHeader) - size_ip - size_tcp;
-					DEBUGP(DL_ERROR, ("ip_totallength = %u,size_ip = %u,size_tcp = %u ", IP_TL(pIPHeader), size_ip, size_tcp));
+					pTCPHeader = (TCPHeader*)(pCopyBuffer + sizeof(NDISPROT_ETH_HEADER) + ipHeaderLength);
+					tcpHeaderLength = TH_OFF(pTCPHeader) * 4;
+					pPayload = pPackage + sizeof(NDISPROT_ETH_HEADER) + ipHeaderLength + tcpHeaderLength;
+					payloadLength = ipTotalLength - ipHeaderLength - tcpHeaderLength;
+					DEBUGP(DL_ERROR, ("ip_totallength = %u,size_ip = %u,size_tcp = %u ", ipTotalLength, ipHeaderLength, tcpHeaderLength));
 
 					DEBUGP(DL_ERROR, ("TCP-FrameLen = %u,payloadLen = %u -- %d.%d.%d.%d:%u ==> %d.%d.%d.%d:%u\n",
 						BytesCopied, payloadLength,
