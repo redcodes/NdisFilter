@@ -291,7 +291,7 @@ unsigned long int NtoHl(unsigned long int n)
 }
 
 // 模拟htons函数，本机字节序转网络字节序
-unsigned short int HtoNs(unsigned short int h)
+unsigned short HtoNs(unsigned short h)
 {
 	// 若本机为大端，与网络字节序同，直接返回
 	// 若本机为小端，转换成大端再返回
@@ -300,11 +300,27 @@ unsigned short int HtoNs(unsigned short int h)
 }
 
 // 模拟ntohs函数，网络字节序转本机字节序
-unsigned short int NtoHs(unsigned short int n)
+unsigned short NtoHs(unsigned short n)
 {
 	// 若本机为大端，与网络字节序同，直接返回
 	// 若本机为小端，网络数据转换成小端再返回
 
 	return checkCPUendian() ? n : BigLittleSwap16(n);
+}
+
+//buf表示报文中需要计算校验和的各个数，n是数据个数
+unsigned short checksum(unsigned short* buffer, int size)
+{
+	unsigned int sum = 0;
+	for (sum = 0; size > 0;)
+	{
+		sum += *buffer++;
+		size -= 2;
+	}
+
+	sum = (sum >> 16) + (sum & 0xFFFF);
+	sum += (sum >> 16);
+
+	return (unsigned short)(~sum);
 }
 

@@ -21,8 +21,8 @@ Notes:
 --*/
 
 #include "precomp.h"
-#include "iphdr.h"
 #include "macros.h"
+#include "iphdr.h"
 
 #define __FILENUMBER    'PNPF'
 #define NIC_TAG                             ((ULONG)'MDWN')
@@ -50,6 +50,57 @@ NDIS_FILTER_PARTIAL_CHARACTERISTICS DefaultChars = {
 	  FilterReceiveNetBufferLists,
 	  FilterReturnNetBufferLists
 };
+
+unsigned short IPCheckSum(IPV4_HDR* ipHeader)
+{
+	UINT ipHeaderLength = IP_HL(ipHeader) * 4;
+
+	ipHeader->ip_checksum = 0;
+	return checksum((unsigned short*)ipHeader, ipHeaderLength);
+}
+
+unsigned short TCPChecksum(IPV4_HDR* ipHeader, TCPHeader* tcpHeader, void* pData, UINT dataSize)
+{
+	PUCHAR pBuffer = NULL;
+	UINT bufSize = 0;
+	UINT offset = 0;
+	PSD_HEADER psdHeader = { 0 };
+	UINT tcpHeaderLength = TH_OFF(tcpHeader) * 4;
+
+	if (NULL == pData)
+		dataSize = 0;
+
+	psdHeader.saddr = *(unsigned long*)ipHeader->ip_srcaddr;
+	psdHeader.daddr = *(unsigned long*)ipHeader->ip_destaddr;
+	psdHeader.mbz = 0;
+	psdHeader.ptcl = ipHeader->ip_protocol;
+	psdHeader.tcpl = HtoNs((unsigned short)(tcpHeaderLength + dataSize));
+
+	bufSize = sizeof(PSD_HEADER) + tcpHeaderLength + dataSize;
+	if (0 != (bufSize % 2))
+		bufSize += 1;
+
+	pBuffer = ExAllocatePoolWithTag(NonPagedPool, bufSize, FILTER_TAG);
+	NdisZeroMemory(pBuffer, bufSize);
+
+	NdisMoveMemory(pBuffer + offset, &psdHeader, sizeof(PSD_HEADER));
+	offset += sizeof(PSD_HEADER);
+
+	NdisMoveMemory(pBuffer + offset, tcpHeader, tcpHeaderLength);
+	offset += tcpHeaderLength;
+
+	if ((NULL != pData) && (dataSize > 0))
+		NdisMoveMemory(pBuffer + offset, pData, dataSize);
+
+	((TCPHeader*)(pBuffer + sizeof(PSD_HEADER)))->th_sum = 0;
+	((TCPHeader*)(pBuffer + sizeof(PSD_HEADER)))->th_sum = checksum((unsigned short*)pBuffer, bufSize);
+	tcpHeader->th_sum = ((TCPHeader*)(pBuffer + sizeof(PSD_HEADER)))->th_sum;
+
+	ExFreePoolWithTag(pBuffer, FILTER_TAG);
+	pBuffer = NULL;
+
+	return tcpHeader->th_sum;
+}
 
 VOID OnPackageDispatch(
 	PNET_BUFFER_LIST    NetBufferLists,
@@ -137,21 +188,26 @@ VOID OnPackageDispatch(
 				ipHeaderLength = IP_HL(pIPHeader) * 4;
 				ipVer = IP_V(pIPHeader);
 				ipTotalLength = NtoHs(pIPHeader->ip_totallength);
+				pIPHeader->ip_checksum = IPCheckSum(pIPHeader);
 
 				if (pIPHeader->ip_protocol == 6)	// TCP
 				{
 					pTCPHeader = (TCPHeader*)(pCopyBuffer + sizeof(NDISPROT_ETH_HEADER) + ipHeaderLength);
+
 					tcpHeaderLength = TH_OFF(pTCPHeader) * 4;
 					pPayload = pPackage + sizeof(NDISPROT_ETH_HEADER) + ipHeaderLength + tcpHeaderLength;
 					payloadLength = ipTotalLength - ipHeaderLength - tcpHeaderLength;
 					DEBUGP(DL_ERROR, ("ip_totallength = %u,size_ip = %u,size_tcp = %u ", ipTotalLength, ipHeaderLength, tcpHeaderLength));
+
+					pTCPHeader->th_sum = TCPChecksum(pIPHeader, pTCPHeader, pPayload, payloadLength);
+					DEBUGP(DL_ERROR, ("ip_checksum = %02X,tcp_checksum = %02X ", pIPHeader->ip_checksum, pTCPHeader->th_sum));
 
 					DEBUGP(DL_ERROR, ("TCP-FrameLen = %u,payloadLen = %u -- %d.%d.%d.%d:%u ==> %d.%d.%d.%d:%u\n",
 						BytesCopied, payloadLength,
 						pIPHeader->ip_srcaddr[0], pIPHeader->ip_srcaddr[1], pIPHeader->ip_srcaddr[2], pIPHeader->ip_srcaddr[3], NtoHs(pTCPHeader->th_sport),
 						pIPHeader->ip_destaddr[0], pIPHeader->ip_destaddr[1], pIPHeader->ip_destaddr[2], pIPHeader->ip_destaddr[3], NtoHs(pTCPHeader->th_dport)));
 
-					DEBUGPDUMP(DL_ERROR, pPayload, payloadLength);
+					//					DEBUGPDUMP(DL_ERROR, pPayload, payloadLength);
 				}
 			}
 			else if (pEthHeader->EthType == ETHERTYPE_ARP)

@@ -101,7 +101,17 @@ typedef struct _TCPHeader {
 	unsigned short th_win;		/* window */
 	unsigned short th_sum;		/* checksum */
 	unsigned short th_urp;		/* urgent pointer */
-}TCPHeader, * PTCPHeader;;
+}TCPHeader, * PTCPHeader;
+
+typedef struct _psd_header
+{
+	unsigned long saddr; //源地址
+	unsigned long daddr; //目的地址
+	char mbz;			//置空
+	char ptcl;			//协议类型
+	unsigned short tcpl; //TCP长度
+}PSD_HEADER;
+
 
 //#define __BIG_ENDIAN 1
 #if __BIG_ENDIAN
